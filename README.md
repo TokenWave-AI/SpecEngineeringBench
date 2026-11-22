@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="logo.png" width="660" alt="SpecEngineeringBench">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logo-dark.png">
+    <img src="logo.png" width="660" alt="SpecEngineeringBench">
+  </picture>
 </p>
 <h1 align="center">SpecEngineeringBench</h1>
 <p align="center">Evaluating Coding Agents as Autonomous Software Test Engineers</p>
