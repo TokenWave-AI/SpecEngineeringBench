@@ -5,7 +5,7 @@
   </picture>
 </p>
 <h1 align="center">SpecEngineeringBench</h1>
-<p align="center">Evaluating Coding Agents as Autonomous Software Test Engineers</p>
+<p align="center">Evaluating Coding Agents as Autonomous Specification Engineers</p>
 <p align="center">
   <a href="https://tokenwave-ai.github.io/SpecEngineeringBench-Page/">Project page</a> ·
   <a href="https://tokenwave-ai.github.io/SpecEngineeringBench-Page/assets/paper.pdf">Paper</a> ·
@@ -65,7 +65,7 @@ Rates in the CLI output are fractions from 0 to 1. The paper reports them as per
 
 ```bibtex
 @misc{wang2026specengineeringbench,
-  title = {SpecEngineeringBench: Evaluating Coding Agents as Autonomous Software Test Engineers},
+  title = {SpecEngineeringBench: Evaluating Coding Agents as Autonomous Specification Engineers},
   author = {Wang, Xingjian and Wang, Shijian and Liu, Minghao and Zou, Ji and Yang, Zetao
             and Lei, Xinping and Liang, Yiming and Yan, Shen and Zhao, Enduo and Shen, Xiaoyang
             and Xuan, Weihao and Liu, Jiaheng and Zhang, Ge},
