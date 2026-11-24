@@ -49,10 +49,20 @@ The archive contains `portable/manifest.json`, the instance directories and the 
 ```
 
 ```bash
-specbench score runs.jsonl --catalog dataset/portable/manifest.json
+specbench score runs.jsonl --catalog dataset/portable/manifest.json --require-complete
 ```
 
-Use Task 1 artifacts containing `test_metrics` and `testcase_results`, and Task 2 artifacts containing all six `localization_metrics`. The CLI summarizes the instances supplied and reports their count for each task. For a full benchmark comparison, include one successful verifier artifact for each instance in the release manifest for the selected task.
+Point each row at the record the verifier wrote for that trial. A scored trial writes `artifacts/task1-metrics.json` or `artifacts/task2-metrics.json`. When the agent submits nothing, the verifier assigns a reward of zero and writes one of three records, depending on the instance package:
+
+| Record | Contents |
+| --- | --- |
+| `artifacts/task<N>-metrics.json` | `"status": "no_submission"` with all metrics set to zero |
+| `artifacts/task<N>-submission-status.json` | `"status": "no_submission"`, without metrics |
+| `verifier/empty-submission.json` | `"reason": "required submission absent"`, without metrics |
+
+`specbench score` counts all three as zero on every metric and reports them as `no_submission`, matching the paper, which averages over all 100 instances. A missing submission adds no tests to the pooled HP denominator. Any other non-`scored` status means the evaluation itself failed, and the CLI asks you to rerun it.
+
+`--require-complete` fails unless every task in the manifest has a result for each instance in the catalog, and lists the missing IDs. Without it, the CLI summarizes only the instances supplied, so dropping a trial would inflate the averages.
 
 ## Metrics
 
