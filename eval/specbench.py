@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from statistics import fmean
 from typing import Any
@@ -17,7 +18,7 @@ TASKS = ("task1", "task2")
 
 def as_object(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
-        raise ValueError("expected a JSON object")
+        raise TypeError("expected a JSON object")
     return value
 
 
@@ -34,13 +35,38 @@ def fraction(value: Any) -> float:
 def test_counts(artifact: dict[str, Any]) -> tuple[int, int]:
     metrics = as_object(artifact["test_metrics"])
     count = metrics["Num"]
+    if type(count) is float and count.is_integer():
+        count = int(count)
+    if type(count) is not int or count < 0:
+        raise ValueError("Num must be a non-negative test count")
+    if "testcase_results" not in artifact:
+        # verifier/reward.json carries HP and Num but not the per-test outcomes.
+        passed = round(fraction(metrics["HP"]) * count)
+        if abs(fraction(metrics["HP"]) * count - passed) > 1e-6:
+            raise ValueError("HP times Num is not a whole number of passing tests")
+        return passed, count
     results = as_object(artifact["testcase_results"])
-    if type(count) is not int or count < 0 or len(results) != count:
+    if len(results) != count:
         raise ValueError("Num must equal the number of registered testcase results")
     passed = sum(as_object(result)["fixed_exit"] == 0 for result in results.values())
     if abs(fraction(metrics["HP"]) * count - passed) > 1e-8:
         raise ValueError("HP disagrees with repaired-snapshot test outcomes")
     return passed, count
+
+
+def from_reward(reward: dict[str, Any], task: str) -> dict[str, Any]:
+    """Read verifier/reward.json, the only record some packages copy out of the verifier container."""
+    names = TEST_METRICS if task == "task1" else LOCALIZATION_METRICS
+    present = [name for name in names if name in reward]
+    if not present:
+        # The release scorers write a bare zero reward only on their no-submission path.
+        if reward.get("reward") != 0:
+            raise ValueError(f"reward.json has no {task} metrics")
+        return {**zero_submission(task), "no_submission": True}
+    if len(present) != len(names):
+        raise ValueError(f"reward.json lacks {sorted(set(names) - set(present))}")
+    field = "test_metrics" if task == "task1" else "localization_metrics"
+    return {"status": "scored", field: {name: reward[name] for name in names}}
 
 
 def is_absent_submission(artifact: dict[str, Any], task: str) -> bool:
@@ -93,6 +119,9 @@ def read_artifact(row: dict[str, Any], manifest: Path) -> tuple[str, str, dict[s
     if not isinstance(instance, str) or not instance.strip() or task not in ("task1", "task2"):
         raise ValueError("expected an instance_id and task1 or task2")
     artifact = read_json(manifest.parent / row["artifact"])
+    if "reward" in artifact and not {"status", "reason", "test_metrics", "localization_metrics"} & set(artifact):
+        artifact = from_reward(artifact, task)
+        return instance, task, artifact
     if is_absent_submission(artifact, task):
         return instance, task, {**zero_submission(task), "no_submission": True}
     if artifact.get("status", "scored") != "scored":
@@ -152,6 +181,57 @@ def score(manifest: Path, catalog: Path | None = None, require_complete: bool = 
     }
 
 
+def trial_record(trial: Path, task: str) -> Path | None:
+    """Pick the verifier record of one Harbor trial, most detailed first."""
+    patterns = (f"{task}-metrics.json", f"{task}-submission-status.json", "empty-submission.json", "reward.json")
+    for pattern in patterns:
+        found = sorted(path for path in trial.rglob(pattern) if "agent" not in path.relative_to(trial).parts)
+        if pattern == "reward.json":
+            found = [path for path in found if path.parent.name == "verifier"]
+        if len(found) > 1:
+            raise ValueError(f"{trial}: several {pattern} files: {', '.join(map(str, found))}")
+        if found:
+            return found[0]
+    return None
+
+
+def collect(jobs: Path, output: Path, catalog: Path | None = None, latest: bool = False) -> list[str]:
+    """Write a score manifest for every Harbor trial under jobs; return problems that need a rerun."""
+    instance_ids = {episode["id"] for episode in read_json(catalog)["episodes"]} if catalog else None
+    chosen: dict[tuple[str, str], tuple[str, Path]] = {}
+    problems = []
+    for result_path in sorted(jobs.rglob("result.json")):
+        result = read_json(result_path)
+        if "task_id" not in result:
+            continue  # job-level summary
+        parts = Path(result["task_id"]["path"]).parts
+        if len(parts) < 3 or parts[-1] not in TASKS:
+            continue
+        instance, task, trial = f"{parts[-3]}/{parts[-2]}", parts[-1], result_path.parent
+        if instance_ids is not None and instance not in instance_ids:
+            problems.append(f"{trial}: {instance} is absent from the dataset manifest")
+            continue
+        record = trial_record(trial, task)
+        if record is None:
+            error = (result.get("exception_info") or {}).get("exception_type", "no verifier record")
+            problems.append(f"{trial}: {instance} ({task}) has no verifier record ({error}); rerun it")
+            continue
+        key = (instance, task)
+        finished = result.get("finished_at") or ""
+        if key in chosen and not latest:
+            problems.append(f"{trial}: second result for {instance} ({task}); keep one or pass --latest")
+            continue
+        if key not in chosen or finished > chosen[key][0]:
+            chosen[key] = (finished, record)
+    base = output.resolve().parent
+    rows = [
+        {"instance_id": instance, "task": task, "artifact": os.path.relpath(record.resolve(), base)}
+        for (instance, task), (_, record) in sorted(chosen.items())
+    ]
+    output.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    return problems
+
+
 def download(output: Path, revision: str) -> str:
     from huggingface_hub import hf_hub_download
 
@@ -164,6 +244,11 @@ def main() -> None:
     fetch = commands.add_parser("download", help="download the dataset archive")
     fetch.add_argument("output", type=Path)
     fetch.add_argument("--revision", default="main", help="Hugging Face commit, tag, or branch")
+    gather = commands.add_parser("collect", help="write a score manifest from Harbor job directories")
+    gather.add_argument("jobs", type=Path, help="Harbor --jobs-dir, or any directory above the trials")
+    gather.add_argument("-o", "--output", type=Path, default=Path("runs.jsonl"))
+    gather.add_argument("--catalog", type=Path, help="portable/manifest.json for validating instance IDs")
+    gather.add_argument("--latest", action="store_true", help="keep the newest trial when a task was run twice")
     summarize = commands.add_parser("score", help="summarize a JSONL manifest of verifier results")
     summarize.add_argument("manifest", type=Path)
     summarize.add_argument("--catalog", type=Path, help="portable/manifest.json for validating instance IDs")
@@ -175,6 +260,16 @@ def main() -> None:
     arguments = parser.parse_args()
     if arguments.command == "download":
         print(download(arguments.output, arguments.revision))
+        return
+    if arguments.command == "collect":
+        try:
+            problems = collect(arguments.jobs, arguments.output, arguments.catalog, arguments.latest)
+        except (KeyError, OSError, TypeError, ValueError) as error:
+            parser.exit(2, f"specbench: {error}\n")
+        rows = len(arguments.output.read_text(encoding="utf-8").splitlines())
+        print(f"wrote {rows} results to {arguments.output}")
+        if problems:
+            parser.exit(1, "".join(f"specbench: {problem}\n" for problem in problems))
         return
     try:
         result = score(arguments.manifest, arguments.catalog, arguments.require_complete)

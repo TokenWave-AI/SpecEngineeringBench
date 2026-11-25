@@ -10,7 +10,10 @@ requires-python = ">=3.10"
 dependencies = ["huggingface-hub>=0.32,<2"]
 
 [project.scripts]
-specbench = "specbench:main"
+specbench = "eval.specbench:main"
 
 [tool.setuptools]
-py-modules = ["specbench"]
+packages = ["eval"]
+
+[tool.ruff]
+line-length = 120

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import specbench
+from eval import specbench
 
 
 class ScoringTests(unittest.TestCase):
@@ -146,6 +146,102 @@ class ScoringTests(unittest.TestCase):
         manifest = self.manifest({"instance_id": "a", "task": "task1", "artifact": self.artifact("r.json", {})})
         with self.assertRaisesRegex(ValueError, "needs --catalog"):
             specbench.score(manifest, require_complete=True)
+
+    def trial(self, job, name, task_path, files, finished="2026-11-25T10:00:00", exception=None):
+        trial = self.root / "jobs" / job / name
+        trial.mkdir(parents=True)
+        result = {"task_id": {"path": task_path}, "trial_name": name, "finished_at": finished}
+        if exception:
+            result["exception_info"] = {"exception_type": exception}
+        (trial / "result.json").write_text(json.dumps(result), encoding="utf-8")
+        for relative, data in files.items():
+            (trial / relative).parent.mkdir(parents=True, exist_ok=True)
+            (trial / relative).write_text(json.dumps(data), encoding="utf-8")
+        return trial
+
+    def test_collect_builds_manifest_from_harbor_jobs(self):
+        scored = {"status": "scored", "localization_metrics": dict.fromkeys(specbench.LOCALIZATION_METRICS, 0.5)}
+        self.trial(
+            "run",
+            "task2__a",
+            "/data/portable/pallets_flask/episode-0001/task2",
+            {"artifacts/task2-metrics.json": scored},
+        )
+        self.trial(
+            "run",
+            "task1__b",
+            "pallets_flask/episode-0001/task1",
+            {"verifier/empty-submission.json": {"reason": "required submission absent", "task": "task1"}},
+        )
+        self.trial(
+            "run",
+            "task1__c",
+            "boto_boto3/episode-0001/task1",
+            {"artifacts/task1-submission-status.json": {"status": "no_submission", "task": "1"}},
+        )
+        (self.root / "jobs/run/result.json").write_text(json.dumps({"n_total_trials": 3}), encoding="utf-8")
+        output = self.root / "out/runs.jsonl"
+        output.parent.mkdir()
+        self.assertEqual(specbench.collect(self.root / "jobs", output), [])
+        rows = [json.loads(line) for line in output.read_text().splitlines()]
+        self.assertEqual(
+            [(row["instance_id"], row["task"], Path(row["artifact"]).name) for row in rows],
+            [
+                ("boto_boto3/episode-0001", "task1", "task1-submission-status.json"),
+                ("pallets_flask/episode-0001", "task1", "empty-submission.json"),
+                ("pallets_flask/episode-0001", "task2", "task2-metrics.json"),
+            ],
+        )
+        self.assertEqual(specbench.score(output)["task2"]["file"], {"LR": 0.5, "LP": 0.5})
+
+    def test_collect_reports_crashed_and_duplicate_trials(self):
+        self.trial("a", "task1__x", "nltk/episode-0001/task1", {}, exception="RuntimeError")
+        status = {"artifacts/task1-submission-status.json": {"status": "no_submission", "task": "1"}}
+        self.trial("a", "task1__y", "pydantic/episode-0001/task1", status, finished="2026-11-25T09:00:00")
+        newer = self.trial("b", "task1__z", "pydantic/episode-0001/task1", status, finished="2026-11-25T11:00:00")
+        output = self.root / "runs.jsonl"
+        problems = specbench.collect(self.root / "jobs", output)
+        self.assertEqual(len(problems), 2)
+        self.assertIn("nltk/episode-0001 (task1) has no verifier record (RuntimeError)", problems[0])
+        self.assertIn("second result for pydantic/episode-0001", problems[1])
+        self.assertEqual(specbench.collect(self.root / "jobs", output, latest=True)[1:], [])
+        self.assertIn(str(newer.relative_to(self.root)), output.read_text())
+
+    def test_collect_ignores_agent_written_metrics(self):
+        fake = {"agent/task1-metrics.json": {"status": "scored"}}
+        self.trial("a", "task1__x", "nltk/episode-0001/task1", fake, exception="AgentTimeoutError")
+        problems = specbench.collect(self.root / "jobs", self.root / "runs.jsonl")
+        self.assertIn("no verifier record", problems[0])
+
+    def test_reward_json_is_scored_when_no_metrics_file_was_copied(self):
+        # Real verifier/reward.json files from the Harbor end-to-end run (flask Task 1, textual Task 2, xlrd nop).
+        task1 = {"HP": 0.9545454545454546, "F2P": 0.5, "EC": 0.9081632653061225, "CFG": 0.9423076923076923, "Num": 22}
+        task2 = dict.fromkeys(specbench.LOCALIZATION_METRICS, 0.25)
+        manifest = self.manifest(
+            {"instance_id": "a", "task": "task1", "artifact": self.artifact("a.json", {**task1, "reward": 0.83})},
+            {"instance_id": "b", "task": "task1", "artifact": self.artifact("b.json", {"reward": 0.0})},
+            {"instance_id": "a", "task": "task2", "artifact": self.artifact("c.json", {"reward": 0.25, **task2})},
+        )
+        result = specbench.score(manifest)
+        self.assertEqual((result["task1"]["HP"], result["task1"]["Num"]), (21 / 22, 11))
+        self.assertEqual((result["task1"]["F2P"], result["task1"]["no_submission"]), (0.25, 1))
+        self.assertEqual(result["task2"]["hunk"], {"LR": 0.25, "LP": 0.25})
+
+    def test_reward_json_without_metrics_is_rejected_unless_zero(self):
+        for reward, message in (({"reward": 0.4}, "no task1 metrics"), ({"reward": 0.4, "HP": 1.0}, "lacks")):
+            manifest = self.manifest({"instance_id": "a", "task": "task1", "artifact": self.artifact("r.json", reward)})
+            with self.subTest(reward=reward), self.assertRaisesRegex(ValueError, message):
+                specbench.score(manifest)
+
+    def test_collect_prefers_metrics_over_reward_json(self):
+        metrics = {"status": "scored", "localization_metrics": dict.fromkeys(specbench.LOCALIZATION_METRICS, 0.5)}
+        files = {"verifier/artifacts/task2-metrics.json": metrics, "verifier/reward.json": {"reward": 0.5}}
+        self.trial("a", "task2__x", "textual/episode-0001/task2", files)
+        self.trial("a", "task1__y", "boto_boto3/episode-0001/task1", {"verifier/reward.json": {"reward": 0.0}})
+        output = self.root / "runs.jsonl"
+        self.assertEqual(specbench.collect(self.root / "jobs", output), [])
+        names = [Path(json.loads(line)["artifact"]).name for line in output.read_text().splitlines()]
+        self.assertEqual(names, ["reward.json", "task2-metrics.json"])
 
     @patch("huggingface_hub.hf_hub_download", return_value="output/data.tar.gz")
     def test_download_targets_dataset_and_revision(self, download):
