@@ -9,6 +9,7 @@
 <p align="center">
   <a href="https://tokenwave-ai.github.io/SpecEngineeringBench-Page/">Project page</a> ·
   <a href="https://arxiv.org/abs/2611.32973">Paper</a> ·
+  <a href="https://huggingface.co/papers/2611.32973">HF Paper</a> ·
   <a href="https://huggingface.co/datasets/Tokenwave-AI/SpecEngineeringBench">Dataset</a>
 </p>
 
@@ -51,14 +52,6 @@ harbor run --path pallets_flask/episode-0001/task2 --agent codex --model openai/
 ```
 
 `portable/run_common.sh <task path>` wraps the same command with the settings used for the paper (one attempt, five-fold agent and verifier timeouts); `HARBOR_AGENT`, `HARBOR_MODEL` and `HARBOR_JOBS_DIR` override them.
-
-Eleven instances ship their own launcher, `task<N>/tests/build/run_harbor.py`, which runs Harbor with the bundled environment provider the verifier expects. Use it for those instances, with Python 3.12 and the packages in `tests/build/runtime-requirements.txt`:
-
-```bash
-python boto_boto3/episode-0001/task1/tests/build/run_harbor.py --agent codex --model openai/gpt-5.6-sol --jobs-dir ../../jobs
-```
-
-The instances are boto3, cherrypy, django-haystack, encode/httpcore, flask-restx, jupyter_client, nbconvert, oauthlib, parso, peewee and xlrd; `ls */*/task1/tests/build/run_harbor.py` lists them.
 
 Agents run without network access, which Harbor enforces with nftables, so the Docker host needs nftables support. Harnesses that call a model API from inside the task container, such as Codex and Claude Code, need that host allowed: add `--allow-agent-host <api host>`.
 
