@@ -47,11 +47,11 @@ Each instance has two Harbor task packages, `<repository>/<episode>/task1` and `
 ```bash
 pip install "harbor==0.23.0"
 cd dataset/portable
-harbor run --path pallets_flask/episode-0001/task1 --agent codex --model openai/gpt-5.6-sol --jobs-dir ../../jobs
-harbor run --path pallets_flask/episode-0001/task2 --agent codex --model openai/gpt-5.6-sol --jobs-dir ../../jobs
+harbor run --path pallets_flask/episode-0001/task1 --agent codex --model openai/gpt-5.6-sol --ak reasoning_effort=high --jobs-dir ../../jobs
+harbor run --path pallets_flask/episode-0001/task2 --agent codex --model openai/gpt-5.6-sol --ak reasoning_effort=high --jobs-dir ../../jobs
 ```
 
-`portable/run_common.sh <task path>` wraps the same command with the settings used for the paper (one attempt, five-fold agent and verifier timeouts); `HARBOR_AGENT`, `HARBOR_MODEL` and `HARBOR_JOBS_DIR` override them.
+Agents run without a time limit, and the reference setting is high reasoning effort. `portable/run_common.sh <task path>` runs the same command with one attempt and high reasoning effort; `HARBOR_AGENT`, `HARBOR_MODEL`, `HARBOR_REASONING_EFFORT` and `HARBOR_JOBS_DIR` override them.
 
 Agents run without network access, which Harbor enforces with nftables, so the Docker host needs nftables support. Harnesses that call a model API from inside the task container, such as Codex and Claude Code, need that host allowed: add `--allow-agent-host <api host>`.
 
