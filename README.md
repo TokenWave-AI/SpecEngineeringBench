@@ -37,7 +37,7 @@ specbench download ./dataset
 tar -xzf ./dataset/data.tar.gz -C ./dataset
 ```
 
-The archive contains `portable/manifest.json`, the instance directories and the Harbor task packages. Use `specbench download ./dataset --revision <commit>` to pin the Hub revision. The paper's experiments used revision `059688e`; later revisions fix two packaging defects, listed on the data card, without changing scoring code or task inputs. The data card describes the release layout and evaluation inputs. [Hugging Face data card](https://huggingface.co/datasets/Tokenwave-AI/SpecEngineeringBench)
+The archive contains `portable/manifest.json`, the instance directories and the Harbor task packages. The data card describes the release layout and evaluation inputs. [Hugging Face data card](https://huggingface.co/datasets/Tokenwave-AI/SpecEngineeringBench)
 
 ## Run an agent
 
@@ -60,7 +60,7 @@ python boto_boto3/episode-0001/task1/tests/build/run_harbor.py --agent codex --m
 
 The instances are boto3, cherrypy, django-haystack, encode/httpcore, flask-restx, jupyter_client, nbconvert, oauthlib, parso, peewee and xlrd; `ls */*/task1/tests/build/run_harbor.py` lists them.
 
-Agents run with `network_mode = "no-network"`, which Harbor's Docker environment enforces with nftables, so the host kernel needs nftables support; the bundled launchers require it as well. Harnesses that call a model API from inside the task container, such as Codex and Claude Code, need an egress exception for the API host only. Harbor's `--allow-agent-host` provides one. The paper instead ran each instance in its own E2B sandbox, whose kernel lacks nftables: Harbor kept the container network public, E2B limited sandbox egress to the model API during the agent phase, and the agent container was detached before the separate verifier started.
+Agents run without network access, which Harbor enforces with nftables, so the Docker host needs nftables support. Harnesses that call a model API from inside the task container, such as Codex and Claude Code, need that host allowed: add `--allow-agent-host <api host>`.
 
 ## Score a run
 
