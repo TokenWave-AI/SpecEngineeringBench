@@ -8,7 +8,7 @@
 <p align="center">Evaluating Coding Agents as Autonomous Specification Engineers</p>
 <p align="center">
   <a href="https://tokenwave-ai.github.io/SpecEngineeringBench-Page/">Project page</a> ·
-  <a href="https://tokenwave-ai.github.io/SpecEngineeringBench-Page/assets/paper.pdf">Paper</a> ·
+  <a href="https://arxiv.org/abs/2611.32973">Paper</a> ·
   <a href="https://huggingface.co/datasets/Tokenwave-AI/SpecEngineeringBench">Dataset</a>
 </p>
 
@@ -80,6 +80,9 @@ Rates in the CLI output are fractions from 0 to 1. The paper reports them as per
             and Lei, Xinping and Liang, Yiming and Yan, Shen and Zhao, Enduo and Shen, Xiaoyang
             and Xuan, Weihao and Liu, Jiaheng and Zhang, Ge},
   year = {2026},
-  url = {https://tokenwave-ai.github.io/SpecEngineeringBench-Page/}
+  eprint = {2611.32973},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.SE},
+  url = {https://arxiv.org/abs/2611.32973}
 }
 ```
